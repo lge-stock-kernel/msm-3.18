@@ -66,6 +66,13 @@ struct route_payload {
 	unsigned int session_id;
 };
 
+
+struct msm_pcm_channel_mux {
+	int out_channel;
+	int input_channel;
+	u16 channel_config[16][16];
+};
+
 struct default_chmixer_param_id_coeff {
 	uint32_t index;
 	uint16_t num_output_channels;
@@ -184,4 +191,10 @@ int adm_programable_channel_mixer(int port_id, int copp_idx, int session_id,
 			struct msm_pcm_channel_mixer *ch_mixer,
 			int channel_index, bool use_default_chmap,
 			char *ch_map);
+#ifdef CONFIG_MACH_LGE
+int lge_programable_channel_mixer(int port_id, int copp_idx, int session_id,
+			int session_type,
+			struct msm_pcm_channel_mux *ch_mux,
+			int num_ch);
+#endif
 #endif /* __Q6_ADM_V2_H__ */

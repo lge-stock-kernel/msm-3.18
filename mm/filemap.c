@@ -36,6 +36,7 @@
 #include <linux/cleancache.h>
 #include <linux/rmap.h>
 #include "internal.h"
+#include "../fs/sreadahead_prof.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/filemap.h>
@@ -628,11 +629,9 @@ int add_to_page_cache_lru(struct page *page, struct address_space *mapping,
 		 * recently, in which case it should be activated like
 		 * any other repeatedly accessed page.
 		 */
-		if (shadow && workingset_refault(shadow)) {
-			SetPageActive(page);
-			workingset_activation(page);
-		} else
-			ClearPageActive(page);
+		WARN_ON_ONCE(PageActive(page));
+		if (!(gfp_mask & __GFP_WRITE) && shadow)
+			workingset_refault(page, shadow);
 		lru_cache_add(page);
 	}
 	return ret;
@@ -1825,7 +1824,11 @@ static void do_sync_mmap_readahead(struct vm_area_struct *vma,
 	/*
 	 * mmap read-around
 	 */
+#ifdef CONFIG_READAHEAD_MMAP_SIZE_ENABLE
+	ra_pages = min_t(unsigned long, sreadahead_ra_pages, max_sane_readahead(ra->ra_pages));
+#else
 	ra_pages = max_sane_readahead(ra->ra_pages);
+#endif
 	ra->start = max_t(long, 0, offset - ra_pages / 2);
 	ra->size = ra_pages;
 	ra->async_size = ra_pages / 4;
@@ -1908,6 +1911,15 @@ int filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 		/* No page in the page cache at all */
 		do_sync_mmap_readahead(vma, ra, file, offset);
 		count_vm_event(PGMAJFAULT);
+		/* LGE_CHANGE_S
+		*
+		* Profile files related to pgmajfault during 1st booting
+		* in order to use the data as readahead args
+		*
+		* matia.kim@lge.com 20130612
+		*/
+		sreadahead_prof(file, 0, 0);
+		/* LGE_CHANGE_E */
 		mem_cgroup_count_vm_event(vma->vm_mm, PGMAJFAULT);
 		ret = VM_FAULT_MAJOR;
 retry_find:

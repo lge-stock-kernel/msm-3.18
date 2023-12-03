@@ -46,8 +46,10 @@
 #define LPASS_BE_SEC_MI2S_TX "SEC_MI2S_TX"
 #define LPASS_BE_PRI_MI2S_RX "PRI_MI2S_RX"
 #define LPASS_BE_PRI_MI2S_TX "PRI_MI2S_TX"
-#define LPASS_BE_TERT_MI2S_RX "TERTIARY_MI2S_RX"
-#define LPASS_BE_TERT_MI2S_TX "TERTIARY_MI2S_TX"
+#define LPASS_BE_TERT_MI2S_RX "TERT_MI2S_RX"
+#define LPASS_BE_TERT_MI2S_TX "TERT_MI2S_TX"
+//#define LPASS_BE_TERT_MI2S_TX "TERTIARY_MI2S_TX"
+//#define LPASS_BE_TERT_MI2S_RX "TERTIARY_MI2S_RX"
 #define LPASS_BE_AUDIO_I2S_RX "AUDIO_I2S_RX"
 #define LPASS_BE_STUB_RX "STUB_RX"
 #define LPASS_BE_STUB_TX "STUB_TX"
@@ -418,4 +420,8 @@ int msm_pcm_routing_send_chmix_cfg(int fe_id, int ip_channel_cnt,
 				int op_channel_cnt, int *ch_wght_coeff,
 				int session_type, bool use_default_chmap,
 				char *channel_map);
+#ifdef CONFIG_MACH_LGE
+int lge_msm_pcm_routing_channel_mixer(int fedai_id, bool perf_mode,
+				int dspst_id, int stream_type, int be_id);
+#endif
 #endif /*_MSM_PCM_H*/

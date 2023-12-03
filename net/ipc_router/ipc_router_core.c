@@ -217,25 +217,6 @@ enum {
 	UP,
 };
 
-/**
- * is_sensor_port() - Check if the remote port is sensor service or not
- * @rport: Pointer to the remote port.
- *
- * Return: true if the remote port is sensor service else false.
- */
-static int is_sensor_port(struct msm_ipc_router_remote_port *rport)
-{
-	u32 svcid = 0;
-
-	if (rport && rport->server) {
-		svcid = rport->server->name.service;
-		if (svcid == 400 || (svcid >= 256 && svcid <= 320))
-			return true;
-	}
-
-	return false;
-}
-
 static void init_routing_table(void)
 {
 	int i;
@@ -499,15 +480,23 @@ out_create_rtentry2:
  * This function is used to obtain a reference to the rounting table entry
  * corresponding to a node id.
  */
+static struct msm_ipc_routing_table_entry *ipc_router_get_rtentry_ref_lock(
+	uint32_t node_id)
+{
+	struct msm_ipc_routing_table_entry *rt_entry;
+
+	rt_entry = lookup_routing_table(node_id);
+	if (rt_entry)
+		kref_get(&rt_entry->ref);
+	return rt_entry;
+}
 static struct msm_ipc_routing_table_entry *ipc_router_get_rtentry_ref(
 	uint32_t node_id)
 {
 	struct msm_ipc_routing_table_entry *rt_entry;
 
 	down_read(&routing_table_lock_lha3);
-	rt_entry = lookup_routing_table(node_id);
-	if (rt_entry)
-		kref_get(&rt_entry->ref);
+	rt_entry = ipc_router_get_rtentry_ref_lock(node_id);
 	up_read(&routing_table_lock_lha3);
 	return rt_entry;
 }
@@ -751,7 +740,7 @@ static void *msm_ipc_router_skb_to_buf(struct sk_buff_head *skb_head,
 
 	temp = skb_peek(skb_head);
 	buf_len = len;
-	buf = kmalloc(buf_len, GFP_KERNEL);
+	buf = kmalloc(buf_len, GFP_NOFS);
 	if (!buf) {
 		IPC_RTR_ERR("%s: cannot allocate buf\n", __func__);
 		return NULL;
@@ -1185,8 +1174,7 @@ static int post_pkt_to_port(struct msm_ipc_port *port_ptr,
 	}
 
 	mutex_lock(&port_ptr->port_rx_q_lock_lhc3);
-	if (pkt->ws_need)
-		__pm_stay_awake(port_ptr->port_rx_ws);
+	__pm_stay_awake(port_ptr->port_rx_ws);
 	list_add_tail(&temp_pkt->list, &port_ptr->port_rx_q);
 	wake_up(&port_ptr->port_rx_wait_q);
 	notify = port_ptr->notify;
@@ -2755,6 +2743,7 @@ static void do_read_data(struct work_struct *work)
 	struct rr_packet *pkt = NULL;
 	struct msm_ipc_port *port_ptr;
 	struct msm_ipc_router_remote_port *rport_ptr;
+	int ret;
 
 	struct msm_ipc_router_xprt_info *xprt_info =
 		container_of(work,
@@ -2762,7 +2751,17 @@ static void do_read_data(struct work_struct *work)
 			     read_data);
 
 	while ((pkt = rr_read(xprt_info)) != NULL) {
+		if (pkt->length < calc_rx_header_size(xprt_info) ||
+		    pkt->length > MAX_IPC_PKT_SIZE) {
+			IPC_RTR_ERR("%s: Invalid pkt length %d\n",
+				__func__, pkt->length);
+			goto read_next_pkt1;
+		}
 
+
+		ret = extract_header(pkt);
+		if (ret < 0)
+			goto read_next_pkt1;
 		hdr = &(pkt->hdr);
 
 		if ((hdr->dst_node_id != IPC_ROUTER_NID_LOCAL) &&
@@ -3075,6 +3074,12 @@ static int msm_ipc_router_write_pkt(struct msm_ipc_port *src,
 	hdr->dst_node_id = rport_ptr->node_id;
 	hdr->dst_port_id = rport_ptr->port_id;
 
+	if (unlikely(!virt_addr_valid(pkt->pkt_fragment_q)))
+		 __dma_flush_range((void *)&pkt->pkt_fragment_q, (void *)&pkt->pkt_fragment_q + (sizeof(struct sk_buff_head *)));
+
+	if (pkt->pkt_fragment_q == NULL)
+		return -EINVAL;
+
 	ret = ipc_router_tx_wait(src, rport_ptr, &set_confirm_rx, timeout);
 	if (ret < 0)
 		return ret;
@@ -3087,14 +3092,16 @@ static int msm_ipc_router_write_pkt(struct msm_ipc_port *src,
 		ret = loopback_data(src, hdr->dst_port_id, pkt);
 		return ret;
 	}
-
-	rt_entry = ipc_router_get_rtentry_ref(hdr->dst_node_id);
+	down_read(&routing_table_lock_lha3);//LGE
+	rt_entry = ipc_router_get_rtentry_ref_lock(hdr->dst_node_id);
 	if (!rt_entry) {
 		IPC_RTR_ERR("%s: Remote node %d not up\n",
 			__func__, hdr->dst_node_id);
+		up_read(&routing_table_lock_lha3);//LGE
 		return -ENODEV;
 	}
-	down_read(&rt_entry->lock_lha4);
+	down_read(&rt_entry->lock_lha4);//LGE
+	up_read(&routing_table_lock_lha3);
 	xprt_info = rt_entry->xprt_info;
 	ret = ipc_router_get_xprt_info_ref(xprt_info);
 	if (ret < 0) {
@@ -3968,6 +3975,7 @@ static void debugfs_init(void) {}
  */
 static void *ipc_router_create_log_ctx(char *name)
 {
+#ifdef CONFIG_IPC_LOGGING
 	struct ipc_rtr_log_ctx *sub_log_ctx;
 
 	sub_log_ctx = kmalloc(sizeof(struct ipc_rtr_log_ctx),
@@ -3987,6 +3995,9 @@ static void *ipc_router_create_log_ctx(char *name)
 	INIT_LIST_HEAD(&sub_log_ctx->list);
 	list_add_tail(&sub_log_ctx->list, &log_ctx_list);
 	return sub_log_ctx->log_ctx;
+#else
+	return NULL;
+#endif
 }
 
 static void ipc_router_log_ctx_init(void)
@@ -4206,7 +4217,6 @@ void msm_ipc_router_xprt_notify(struct msm_ipc_router_xprt *xprt,
 {
 	struct msm_ipc_router_xprt_info *xprt_info = xprt->priv;
 	struct msm_ipc_router_xprt_work *xprt_work;
-	struct msm_ipc_router_remote_port *rport_ptr = NULL;
 	struct rr_packet *pkt;
 	int ret;
 
@@ -4259,33 +4269,10 @@ void msm_ipc_router_xprt_notify(struct msm_ipc_router_xprt *xprt,
 	if (!pkt)
 		return;
 
-	if (pkt->length < calc_rx_header_size(xprt_info) ||
-	    pkt->length > MAX_IPC_PKT_SIZE) {
-		IPC_RTR_ERR("%s: Invalid pkt length %d\n",
-			    __func__, pkt->length);
-		release_pkt(pkt);
-		return;
-	}
-
-	ret = extract_header(pkt);
-	if (ret < 0) {
-		release_pkt(pkt);
-		return;
-	}
-
-	pkt->ws_need = true;
-
-	if (pkt->hdr.type == IPC_ROUTER_CTRL_CMD_DATA)
-		rport_ptr = ipc_router_get_rport_ref(pkt->hdr.src_node_id,
-						     pkt->hdr.src_port_id);
-
 	mutex_lock(&xprt_info->rx_lock_lhb2);
 	list_add_tail(&pkt->list, &xprt_info->pkt_list);
-	/* check every pkt is from SENSOR services or not*/
-	if (is_sensor_port(rport_ptr))
-		pkt->ws_need = false;
-	else
-		__pm_stay_awake(&xprt_info->ws);
+
+	__pm_stay_awake(&xprt_info->ws);
 
 	mutex_unlock(&xprt_info->rx_lock_lhb2);
 	queue_work(xprt_info->workqueue, &xprt_info->read_data);
