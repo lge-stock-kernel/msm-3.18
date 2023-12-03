@@ -1,3 +1,11 @@
+ifeq ($(CONFIG_MACH_MSM8996_ELSA),y)
+EXTRA_CFLAGS += -DMSM8996_ELSA
+else ifeq ($(CONFIG_MACH_MSM8996_ANNA),y)
+EXTRA_CFLAGS += -DMSM8996_ANNA
+else ifeq ($(CONFIG_MACH_MSM8996_H1), y)
+EXTRA_CFLAGS += -DMSM8996_H1
+endif
+
 obj-$(CONFIG_PCIE_DW) += pcie-designware.o
 obj-$(CONFIG_PCI_DRA7XX) += pci-dra7xx.o
 obj-$(CONFIG_PCI_EXYNOS) += pci-exynos.o
