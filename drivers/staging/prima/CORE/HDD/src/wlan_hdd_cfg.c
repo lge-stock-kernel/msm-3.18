@@ -2839,6 +2839,13 @@ REG_VARIABLE( CFG_EXTSCAN_ENABLE, WLAN_PARAM_Integer,
                  CFG_PER_ROAM_SCAN_CCA_ENABLED_DEFAULT,
                  CFG_PER_ROAM_SCAN_CCA_ENABLED_MIN,
                  CFG_PER_ROAM_SCAN_CCA_ENABLED_MAX),
+
+   REG_VARIABLE(CFG_PER_ROAM_FULL_SCAN_RSSI_THRESHOLD, WLAN_PARAM_SignedInteger,
+                 hdd_config_t, PERRoamFullScanThreshold,
+                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                 CFG_PER_ROAM_FULL_SCAN_RSSI_THRESHOLD_DEFAULT,
+                 CFG_PER_ROAM_FULL_SCAN_RSSI_THRESHOLD_MIN,
+                 CFG_PER_ROAM_FULL_SCAN_RSSI_THRESHOLD_MAX),
 #endif
 
    REG_VARIABLE( CFG_ENABLE_ADAPT_RX_DRAIN_NAME, WLAN_PARAM_Integer,
@@ -4234,6 +4241,10 @@ static void print_hdd_cfg(hdd_context_t *pHddCtx)
           pHddCtx->cfg_ini->isPERRoamCCAEnabled);
 
   VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO_HIGH,
+          "Name = [gPERRoamFullScanThreshold] Value = [%u] ",
+          pHddCtx->cfg_ini->PERRoamFullScanThreshold);
+
+  VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO_HIGH,
           "Name = [gPERRoamScanInterval] Value = [%lu] ",
           (long unsigned int)pHddCtx->cfg_ini->waitPeriodForNextPERScan);
 
@@ -5245,6 +5256,11 @@ v_BOOL_t hdd_update_config_dat( hdd_context_t *pHddCtx )
         hddLog(LOGE, "Could not pass on WNI_CFG_ENABLE_MC_ADDR_LIST to CCM");
      }
 
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+     /* cache the value configured in fwr */
+     pHddCtx->mc_list_cfg_in_fwr = pConfig->fEnableMCAddrList;
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+
 #ifdef WLAN_FEATURE_11AC
    /* Based on cfg.ini, update the Basic MCS set, RX/TX MCS map in the cfg.dat */
    /* valid values are 0(MCS0-7), 1(MCS0-8), 2(MCS0-9) */
@@ -6041,6 +6057,8 @@ VOS_STATUS hdd_set_sme_config( hdd_context_t *pHddCtx )
            pConfig->waitPeriodForNextPERScan;
    smeConfig->csrConfig.PERtimerThreshold = pConfig->PERtimerThreshold;
    smeConfig->csrConfig.isPERRoamCCAEnabled = pConfig->isPERRoamCCAEnabled;
+   smeConfig->csrConfig.PERRoamFullScanThreshold =
+                   pConfig->PERRoamFullScanThreshold * -1;
    smeConfig->csrConfig.PERroamTriggerPercent = pConfig->PERroamTriggerPercent;
 
 

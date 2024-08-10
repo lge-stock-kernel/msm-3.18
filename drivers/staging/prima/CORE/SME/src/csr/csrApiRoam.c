@@ -557,12 +557,13 @@ eHalStatus csrUpdateChannelList(tpAniSirGlobal pMac)
     tCsrScanStruct *pScan = &pMac->scan;
     tANI_U32 numChan = 0;
     tANI_U32 bufLen ;
-    vos_msg_t msg;
     tANI_U8 i, j;
     tANI_U8 num_channel = 0;
     tANI_U8 channel_state;
     tANI_U8 cfgnumChannels = 0;
     tANI_U8 *cfgChannelList = NULL;
+    eHalStatus status;
+    tSmeCmd *command;
 
     limInitOperatingClasses((tHalHandle)pMac);
     numChan = sizeof(pMac->roam.validChannelList);
@@ -673,21 +674,28 @@ eHalStatus csrUpdateChannelList(tpAniSirGlobal pMac)
              "%s : regID : %d \n", __func__,
               pChanList->regId);
 
-    msg.type = WDA_UPDATE_CHAN_LIST_REQ;
-    msg.reserved = 0;
-    msg.bodyptr = pChanList;
     pChanList->numChan = num_channel;
-    MTRACE(vos_trace(VOS_MODULE_ID_SME,
-                 TRACE_CODE_SME_TX_WDA_MSG, NO_SESSION, msg.type));
-    if(VOS_STATUS_SUCCESS != vos_mq_post_message(VOS_MODULE_ID_WDA, &msg))
-    {
-        VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_FATAL,
-                "%s: Failed to post msg to WDA", __func__);
-        vos_mem_free(pChanList);
-        return eHAL_STATUS_FAILURE;
+
+    status = sme_AcquireGlobalLock(&pMac->sme);
+    if (HAL_STATUS_SUCCESS(status)) {
+        command = csrGetCommandBuffer(pMac);
+        if (command) {
+            command->command = eSmeCommandUpdateChannelList;
+            command->u.chan_list = pChanList;
+
+            status = csrQueueSmeCommand(pMac, command, eANI_BOOLEAN_TRUE);
+           if (!HAL_STATUS_SUCCESS(status)) {
+               smsLog(pMac, LOGE, FL("fail to send msg status = %d"), status);
+               csrReleaseCommand(pMac, command);
+           }
+       } else {
+           smsLog(pMac, LOGE, FL("can not obtain a common buffer"));
+           status = eHAL_STATUS_RESOURCES;
+       }
+       sme_ReleaseGlobalLock(&pMac->sme);
     }
 
-    return eHAL_STATUS_SUCCESS;
+    return status;
 }
 
 eHalStatus csrStart(tpAniSirGlobal pMac)
@@ -753,7 +761,6 @@ eHalStatus csrStop(tpAniSirGlobal pMac, tHalStopType stopType)
     (void) pmcDeregisterPowerSaveCheck(pMac, csrCheckPSReady);
     //Reset the domain back to the deault
     pMac->scan.domainIdCurrent = pMac->scan.domainIdDefault;
-    csrResetCountryInformation(pMac, eANI_BOOLEAN_TRUE, eANI_BOOLEAN_FALSE );
 
     for( i = 0; i < CSR_ROAM_SESSION_MAX; i++ )
     {
@@ -1947,6 +1954,8 @@ eHalStatus csrChangeDefaultConfigParam(tpAniSirGlobal pMac, tCsrConfigParam *pPa
         pMac->roam.configParam.PERtimerThreshold = pParam->PERtimerThreshold;
         pMac->roam.configParam.isPERRoamCCAEnabled =
                 pParam->isPERRoamCCAEnabled;
+        pMac->roam.configParam.PERRoamFullScanThreshold =
+                pParam->PERRoamFullScanThreshold;
         pMac->roam.configParam.PERroamTriggerPercent =
                 pParam->PERroamTriggerPercent;
 #endif
@@ -2165,6 +2174,8 @@ eHalStatus csrGetConfigParam(tpAniSirGlobal pMac, tCsrConfigParam *pParam)
         pParam->PERtimerThreshold = pMac->roam.configParam.PERtimerThreshold;
         pParam->isPERRoamCCAEnabled =
                 pMac->roam.configParam.isPERRoamCCAEnabled;
+        pParam->PERRoamFullScanThreshold =
+                pMac->roam.configParam.PERRoamFullScanThreshold;
         pParam->PERroamTriggerPercent =
                 pMac->roam.configParam.PERroamTriggerPercent;
 #endif
@@ -5614,11 +5625,11 @@ static tANI_BOOLEAN csrRoamProcessResults( tpAniSirGlobal pMac, tSmeCmd *pComman
             */
             //csrRoamStateChange( pMac, eCSR_ROAMING_STATE_JOINED );
 
-            /* Reset remainInPowerActiveTillDHCP as it might have been set
+            /* Reset full_power_till_set_key as it might have been set
              * by last failed secured connection.
              * It should be set only for secured connection.
              */
-            pMac->pmc.remainInPowerActiveTillDHCP = FALSE;
+            pMac->pmc.full_power_till_set_key = false;
             if( CSR_IS_INFRASTRUCTURE( pProfile ) )
             {
                 pSession->connectState = eCSR_ASSOC_STATE_TYPE_INFRA_ASSOCIATED;
@@ -5873,15 +5884,14 @@ static tANI_BOOLEAN csrRoamProcessResults( tpAniSirGlobal pMac, tSmeCmd *pComman
             //enough to let security and DHCP handshake succeed before entry into BMPS
             if (pmcShouldBmpsTimerRun(pMac))
             {
-                /* Set remainInPowerActiveTillDHCP to make sure we wait for
+                /* Set full_power_till_set_key to make sure we wait for
                  * until keys are set before going into BMPS.
                  */
                 if(eANI_BOOLEAN_TRUE == roamInfo.fAuthRequired)
                 {
-                     pMac->pmc.remainInPowerActiveTillDHCP = TRUE;
-                     smsLog(pMac, LOG1, FL("Set remainInPowerActiveTillDHCP "
-                            "to make sure we wait until keys are set before"
-                            " going to BMPS"));
+                     pMac->pmc.full_power_till_set_key = true;
+                     smsLog(pMac, LOG1,
+                       FL("Set full_power_till_set_key to make sure we wait until keys are set before going to BMPS"));
                 }
 
                 if (pmcStartTrafficTimer(pMac, BMPS_TRAFFIC_TIMER_ALLOW_SECURITY_DHCP)
@@ -6921,7 +6931,8 @@ eHalStatus csrRoamConnect(tpAniSirGlobal pMac, tANI_U32 sessionId, tCsrRoamProfi
     }
     /* Reset abortConnection for the fresh connection */
     pSession->abortConnection = FALSE;
-    pSession->dhcp_done = false;
+    //V.E Certification Patch (Case : 02716791)
+    //pSession->dhcp_done = false;
     csrRoamCancelRoaming(pMac, sessionId);
     csrScanRemoveFreshScanCommand(pMac, sessionId);
     csrScanCancelIdleScan(pMac);
@@ -8314,7 +8325,7 @@ static void csrRoamRoamingStateReassocRspProcessor( tpAniSirGlobal pMac, tpSirSm
     tCsrRoamInfo roamInfo;
     tANI_U32 roamId = 0;
     tANI_U32 current_timestamp, max_time = -1;
-    tANI_U32 candidateApCnt, oldestIndex;
+    tANI_U32 candidateApCnt, oldestIndex = 0;
     tANI_U8 nilMac[6] = {0};
 
     if (eSIR_SME_SUCCESS == pSmeJoinRsp->statusCode)
@@ -10096,6 +10107,13 @@ void csrRoamCheckForLinkStatusChange( tpAniSirGlobal pMac, tSirSmeRsp *pSirMsg )
                                      &roamInfo, 0,
                                      eCSR_ROAM_LOSTLINK,
                                      eCSR_ROAM_RESULT_DISASSOC_IND);
+                pSession = CSR_GET_SESSION(pMac,
+                          pDisConDoneInd->sessionId);
+                if (pSession &&
+                   !CSR_IS_INFRA_AP(&pSession->connectedProfile))
+                     csrRoamStateChange(pMac,
+                        eCSR_ROAMING_STATE_IDLE,
+                        pDisConDoneInd->sessionId);
             }
             else
             {
@@ -10587,9 +10605,8 @@ void csrRoamCheckForLinkStatusChange( tpAniSirGlobal pMac, tSirSmeRsp *pSirMsg )
                             }
                             if( pRsp->peerMacAddr[0] & 0x01 )
                             {
-                                pMac->pmc.remainInPowerActiveTillDHCP = FALSE;
-                                smsLog(pMac, LOG1, FL("Reset"
-                                "remainInPowerActiveTillDHCP to allow BMPS"));
+                                pMac->pmc.full_power_till_set_key = false;
+                                smsLog(pMac, LOG1, FL("Reset full_power_till_set_key to allow BMPS"));
                             }
                             setKeyEvent.encryptionModeMulticast = 
                                 (v_U8_t)diagEncTypeFromCSRType(pSession->connectedProfile.mcEncryptionType);
@@ -16643,8 +16660,8 @@ csrRoamScanOffloadPrepareProbeReqTemplate(tpAniSirGlobal pMac,
 ||    V           |  RSO_START  |  RSO_STOP  |  RSO_RESTART | RSO_UPDATE_CFG ||
 || --------------------------------------------------------------------------||
 || RSO_START      |     NO      |   YES      |     NO       |      NO        ||
-|| RSO_STOP       |    YES      |   YES      |     YES      |      YES       ||
-|| RSO_RESTART    |    YES      |   NO       |     NO       |      YES       ||
+|| RSO_STOP       |    YES      |   NO       |     YES      |      YES       ||
+|| RSO_RESTART    |    YES      |   NO       |     YES      |      YES       ||
 || RSO_UPDATE_CFG |    YES      |   NO       |     YES      |      YES       ||
 ||===========================================================================||
 */
@@ -16656,9 +16673,10 @@ csrRoamScanOffloadPrepareProbeReqTemplate(tpAniSirGlobal pMac,
 
 #define RSO_START_ALLOW_MASK   ( RSO_STOP_BIT )
 #define RSO_STOP_ALLOW_MASK    ( RSO_UPDATE_CFG_BIT | RSO_RESTART_BIT | \
-                                 RSO_STOP_BIT | RSO_START_BIT )
-#define RSO_RESTART_ALLOW_MASK ( RSO_UPDATE_CFG_BIT | RSO_START_BIT )
-#define RSO_UPDATE_CFG_ALLOW_MASK  (RSO_UPDATE_CFG_BIT | RSO_STOP_BIT | \
+                                 RSO_START_BIT )
+#define RSO_RESTART_ALLOW_MASK ( RSO_UPDATE_CFG_BIT | RSO_START_BIT | \
+                                 RSO_RESTART_BIT )
+#define RSO_UPDATE_CFG_ALLOW_MASK  (RSO_UPDATE_CFG_BIT | RSO_RESTART_BIT | \
                                     RSO_START_BIT)
 
 tANI_BOOLEAN CsrIsRSOCommandAllowed(tpAniSirGlobal pMac, tANI_U8 command)
@@ -17202,6 +17220,8 @@ send_roam_scan_offload_cmd:
               pMac->roam.configParam.PERtimerThreshold;
       PERRoamReqBuf->isPERRoamCCAEnabled =
               pMac->roam.configParam.isPERRoamCCAEnabled;
+      PERRoamReqBuf->PERRoamFullScanThreshold =
+              pMac->roam.configParam.PERRoamFullScanThreshold;
       PERRoamReqBuf->PERroamTriggerPercent =
               pMac->roam.configParam.PERroamTriggerPercent;
       PERRoamReqBuf->sessionId = sessionId;

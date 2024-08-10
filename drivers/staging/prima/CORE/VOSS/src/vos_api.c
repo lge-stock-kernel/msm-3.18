@@ -269,8 +269,6 @@ VOS_STATUS vos_open( v_CONTEXT_t *pVosContext, void *devHandle )
    /* Initialize the timer module */
    vos_timer_module_init();
 
-   vos_wdthread_init_timer_work(vos_process_wd_timer);
-
    /* Initialize the probe event */
    if (vos_event_init(&gpVosContext->ProbeEvent) != VOS_STATUS_SUCCESS)
    {
@@ -443,6 +441,7 @@ VOS_STATUS vos_open( v_CONTEXT_t *pVosContext, void *devHandle )
    VOS_TRACE( VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_INFO_HIGH,
                "%s: VOSS successfully Opened", __func__);
 
+   gpVosContext->snoc_high_freq_voting = false;
    *pVosContext = gpVosContext;
 
    return VOS_STATUS_SUCCESS;
@@ -3610,4 +3609,23 @@ v_BOOL_t vos_is_probe_rsp_offload_enabled(void)
 	}
 
 	return pHddCtx->cfg_ini->sap_probe_resp_offload;
+}
+
+void vos_set_snoc_high_freq_voting(bool enable)
+{
+   VosContextType *vos_ctx = NULL;
+
+   /* Get the Global VOSS Context */
+   vos_ctx = vos_get_global_context(VOS_MODULE_ID_SYS, NULL);
+
+   if (!vos_ctx) {
+      VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
+            "%s: vos context is NULL", __func__);
+      return;
+   }
+   if (vos_ctx->snoc_high_freq_voting != enable)
+   {
+      vos_ctx->snoc_high_freq_voting = enable;
+      wcnss_snoc_vote(enable);
+   }
 }

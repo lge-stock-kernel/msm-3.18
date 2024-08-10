@@ -365,6 +365,7 @@ typedef struct _VosContextType
    struct list_head wdthread_timer_work_list;
    struct work_struct wdthread_work;
    spinlock_t wdthread_work_lock;
+   bool snoc_high_freq_voting;
 } VosContextType, *pVosContextType;
 
 
@@ -376,6 +377,10 @@ typedef struct _VosContextType
 int vos_sched_is_tx_thread(int threadID);
 int vos_sched_is_rx_thread(int threadID);
 int vos_sched_is_mc_thread(int threadID);
+// LGE-START, 2016.11.18, neo-wifi@lge.com, Apply QCT CR1086969 : Initialize thread stuck timer after driver loading is done
+void vos_thread_stuck_timer_init(pVosWatchdogContext pWdContext);
+// LGE-END, 2016.11.18, neo-wifi@lge.com, Apply QCT CR1086969 : Initialize thread stuck timer after driver loading is done
+
 /*---------------------------------------------------------------------------
   
   \brief vos_sched_open() - initialize the vOSS Scheduler  

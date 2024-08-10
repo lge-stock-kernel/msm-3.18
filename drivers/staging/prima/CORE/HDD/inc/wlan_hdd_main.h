@@ -666,7 +666,6 @@ typedef enum{
     HDD_SSR_DISABLED,
 }e_hdd_ssr_required;
 
-#ifdef WLAN_FEATURE_RMC
 /*---------------------------------------------------------------------------
   hdd_ibss_peer_info_params_t
 ---------------------------------------------------------------------------*/
@@ -725,7 +724,7 @@ typedef struct
     /** Peer Info parameters */
     hdd_ibss_peer_info_params_t  ibssPeerList[HDD_MAX_NUM_IBSS_STA];
 }hdd_ibss_peer_info_t;
-#endif
+
 
 struct hdd_station_ctx
 {
@@ -754,9 +753,7 @@ struct hdd_station_ctx
 
    /*Save the wep/wpa-none keys*/
    tCsrRoamSetKey ibss_enc_key;
-#ifdef WLAN_FEATURE_RMC
    hdd_ibss_peer_info_t ibss_peer_info;
-#endif
 
    v_BOOL_t hdd_ReassocScenario;
 
@@ -1519,7 +1516,9 @@ struct hdd_context_s
     v_U8_t sus_res_mcastbcast_filter;
 
     v_BOOL_t sus_res_mcastbcast_filter_valid;
-
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+    v_BOOL_t mc_list_cfg_in_fwr;
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
     /* debugfs entry */
     struct dentry *debugfs_phy;
 

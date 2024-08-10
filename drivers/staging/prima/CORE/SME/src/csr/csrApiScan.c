@@ -894,7 +894,18 @@ eHalStatus csrScanRequest(tpAniSirGlobal pMac, tANI_U16 sessionId,
                             pScanRequest->ChannelInfo.numOfChannels,
                             pMac->roam.configParam.max_chan_for_dwell_time_cfg);
                 }
+
                 status = csrScanCopyRequest(pMac, &pScanCmd->u.scanCmd.u.scanRequest, pScanRequest);
+
+// LGE_CHANGE_S,, 2016.11-07, neo-wifi@lge.com, Add Scan log
+                {
+                    tCsrScanRequest *pTempScanReq = &pScanCmd->u.scanCmd.u.scanRequest;
+                    printk("[LGE-WIFI] SId=%d scanId=%d, Scan reason=%u, numSSIDs=%d, numChan=%d, P2P search=%d, minCT=%d, maxCT=%d, minCBtc=%d, maxCBtx=%d\n",
+                        sessionId, pScanCmd->u.scanCmd.scanID, pScanCmd->u.scanCmd.reason, pTempScanReq->SSIDs.numOfSSIDs, pTempScanReq->ChannelInfo.numOfChannels,
+                        pTempScanReq->p2pSearch, pTempScanReq->minChnTime, pTempScanReq->maxChnTime, pTempScanReq->minChnTimeBtc, pTempScanReq->maxChnTimeBtc );
+                }
+// LGE_CHANGE_E, 2016.11-07, neo-wifi@lge.com, Add Scan log
+
                 if(HAL_STATUS_SUCCESS(status))
                 {
                     tCsrScanRequest *pTempScanReq =
@@ -2086,7 +2097,7 @@ static tANI_U32 calculateBssScore(tSirBssDescription *bssInfo,
     tANI_S32 score = 0;
     tANI_S32 ap_load = 0;
     tANI_S32 normalised_width = PER_ROAM_20MHZ;
-    tANI_S32 normalised_rssi;
+    tANI_S32 normalised_rssi = 0;
     tANI_S32 channel_weight;
     if (bssInfo->rssi) {
         /* Calculate % of rssi we are getting
@@ -2147,7 +2158,6 @@ static tANI_U32 calculateBssScore(tSirBssDescription *bssInfo,
         ap_load = (bssInfo->QBSS_ChanLoad * PER_ROAM_MAX_WEIGHT) / MAX_AP_LOAD;
     }
 #endif
-    //TODO we don't have this info for current AP, need to check
     /* if CCA consideration is off in configuration, FW will send 50% for
        every channel which should be considered as it is */
     if (ap_load)
@@ -2193,6 +2203,13 @@ static tANI_S32 csrFindCongestionScore (tpAniSirGlobal pMac, tCsrScanResult *pBs
         return -1;
     }
 
+    if (bssInfo->rssi < PER_BAD_RSSI) {
+        smsLog(pMac, LOG1,
+               FL("discrarding candidate due to low rssi=%d bssid "
+               MAC_ADDRESS_STR), bssInfo->rssi,
+               MAC_ADDR_ARRAY(pBss->Result.BssDescriptor.bssId));
+        return 0;
+    }
     /* find best RSSI of other AP in this channel */
     best_rssi = MIN_RSSI;
     for (other_ap_cnt = 0; other_ap_cnt <
@@ -3150,6 +3167,7 @@ eHalStatus csrScanningStateMsgProcessor( tpAniSirGlobal pMac, void *pMsgBuf )
     eHalStatus status = eHAL_STATUS_SUCCESS;
     tSirMbMsg *pMsg = (tSirMbMsg *)pMsgBuf;
     tSirSmeDisConDoneInd *pDisConDoneInd;
+    tCsrRoamSession  *pSession;
     tCsrRoamInfo roamInfo = {0};
 
     if((eWNI_SME_SCAN_RSP == pMsg->type) ||
@@ -3163,7 +3181,6 @@ eHalStatus csrScanningStateMsgProcessor( tpAniSirGlobal pMac, void *pMsgBuf )
         {
             case eWNI_SME_UPPER_LAYER_ASSOC_CNF:
             {
-                tCsrRoamSession  *pSession;
                 tSirSmeAssocIndToUpperLayerCnf *pUpperLayerAssocCnf;
                 tCsrRoamInfo *pRoamInfo = NULL;
                 tANI_U32 sessionId;
@@ -3242,6 +3259,20 @@ eHalStatus csrScanningStateMsgProcessor( tpAniSirGlobal pMac, void *pMsgBuf )
                                 &roamInfo, 0,
                                  eCSR_ROAM_LOSTLINK,
                                  eCSR_ROAM_RESULT_DISASSOC_IND);
+                pSession = CSR_GET_SESSION(pMac,
+                           pDisConDoneInd->sessionId);
+                /*
+                 * Update the previous state if
+                 * previous state was eCSR_ROAMING_STATE_JOINED
+                 * as we are disconnected and
+                 * currunt state is scanning
+                 */
+                if (pSession &&
+                   !CSR_IS_INFRA_AP(&pSession->connectedProfile)
+                   && (eCSR_ROAMING_STATE_IDLE !=
+                   pMac->roam.prev_state[pDisConDoneInd->sessionId]))
+                     pMac->roam.prev_state[pDisConDoneInd->sessionId] =
+                               eCSR_ROAMING_STATE_IDLE;
             }
             else
             {
@@ -3571,6 +3602,7 @@ static void csrMoveTempScanResultsToMainList( tpAniSirGlobal pMac, tANI_U8 reaso
     tANI_U32 sessionId = CSR_SESSION_ID_INVALID;
     tAniSSID tmpSsid;
     v_TIME_t timer=0;
+    tANI_U8 occupied_chan_count = pMac->scan.occupiedChannels.numChannels;
 
     tmpSsid.length = 0;
 
@@ -3659,6 +3691,19 @@ static void csrMoveTempScanResultsToMainList( tpAniSirGlobal pMac, tANI_U8 reaso
         }
     }
 
+#ifdef WLAN_FEATURE_ROAM_SCAN_OFFLOAD
+    if (sme_IsFeatureSupportedByFW(PER_BASED_ROAMING) &&
+       (csrGetInfraSessionId(pMac) != -1) &&
+        (pMac->scan.occupiedChannels.numChannels != occupied_chan_count))
+    {
+        /* Update FW with new list */
+        smsLog(pMac, LOGW,
+               FL("Updating occupied channel list, new chanNum %d"),
+               pMac->scan.occupiedChannels.numChannels);
+        csrRoamOffloadScan(pMac, ROAM_SCAN_OFFLOAD_UPDATE_CFG,
+                           REASON_CHANNEL_LIST_CHANGED);
+    }
+#endif
     pEntry = csrLLPeekHead( &pMac->scan.scanResultList, LL_ACCESS_LOCK );
     //we don't need to update CC while connected to an AP which is advertising CC already
     if (csrIs11dSupported(pMac))
@@ -6422,21 +6467,21 @@ eHalStatus csrProcessScanCommand( tpAniSirGlobal pMac, tSmeCmd *pCommand )
     {
         for( i = 0; i < CSR_ROAM_SESSION_MAX; i++ )
         {
-            pCommand->u.scanCmd.lastRoamState[i] =
+            pMac->roam.prev_state[i]=
                 csrRoamStateChange( pMac, eCSR_ROAMING_STATE_SCANNING, i);
             smsLog( pMac, LOG3, "starting SCAN command from %d state...."
-                    " reason is %d", pCommand->u.scanCmd.lastRoamState[i],
+                    " reason is %d", pMac->roam.prev_state[i],
                     pCommand->u.scanCmd.reason );
         }
     }
     else
     {
-        pCommand->u.scanCmd.lastRoamState[pCommand->sessionId] =
+        pMac->roam.prev_state[pCommand->sessionId] =
             csrRoamStateChange(pMac, eCSR_ROAMING_STATE_SCANNING,
                                pCommand->sessionId);
         smsLog( pMac, LOG3,
                 "starting SCAN command from %d state.... reason is %d",
-                pCommand->u.scanCmd.lastRoamState[pCommand->sessionId],
+                pMac->roam.prev_state[pCommand->sessionId],
                 pCommand->u.scanCmd.reason );
     }
 
@@ -6818,7 +6863,9 @@ eHalStatus csrScanCopyRequest(tpAniSirGlobal pMac, tCsrScanRequest *pDstReq, tCs
                                 if( ((pSrcReq->skipDfsChnlInP2pSearch ||
                                      (pMac->scan.fEnableDFSChnlScan ==
                                      DFS_CHNL_SCAN_DISABLED)) &&
-                                    (NV_CHANNEL_DFS == vos_nv_getChannelEnabledState(pSrcReq->ChannelInfo.ChannelList[index])) )
+                                    (NV_CHANNEL_DFS == vos_nv_getChannelEnabledState(
+                                             pSrcReq->ChannelInfo.ChannelList[index])) &&
+                                            (pSrcReq->ChannelInfo.numOfChannels > 1))
 #ifdef FEATURE_WLAN_LFR
                                      /* 
                                       * If LFR is requesting a contiguous scan
@@ -7669,12 +7716,13 @@ void csrReleaseScanCommand(tpAniSirGlobal pMac, tSmeCmd *pCommand, eCsrScanStatu
     {
         tANI_U32 i;
         for(i = 0; i < CSR_ROAM_SESSION_MAX; i++)
-            csrRoamStateChange(pMac, pCommand->u.scanCmd.lastRoamState[i], i);
+            csrRoamStateChange(pMac,
+              pMac->roam.prev_state[i], i);
     }
     else
     {
         csrRoamStateChange(pMac,
-                pCommand->u.scanCmd.lastRoamState[pCommand->sessionId],
+                pMac->roam.prev_state[pCommand->sessionId],
                 pCommand->sessionId);
     }
 

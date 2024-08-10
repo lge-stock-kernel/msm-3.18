@@ -3703,6 +3703,8 @@ typedef enum DFSChanScanType
 #define SIR_COEX_IND_TYPE_CXM_FEATURES_NOTIFICATION (8)
 #define SIR_COEX_IND_TYPE_TDLS_ENABLE  (6)
 #define SIR_COEX_IND_TYPE_TDLS_DISABLE (7)
+#define SIR_COEX_IND_TYPE_HID_CONNECTED_WLAN_CONNECTED_IN_2p4 (9)
+#define SIR_COEX_IND_TYPE_HID_DISCONNECTED_WLAN_CONNECTED_IN_2p4 (10)
 
 typedef struct sSirSmeCoexInd
 {
@@ -3766,6 +3768,13 @@ typedef struct sSirWlanSetRxpFilters
     tANI_U8 configuredMcstBcstFilterSetting;
     tANI_U8 setMcstBcstFilter;
 }tSirWlanSetRxpFilters,*tpSirWlanSetRxpFilters;
+
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+typedef struct sSirUpdateCfgIntParam
+{
+    tANI_U32 cfgId;
+}tSirUpdateCfgIntParam,*tpSirUpdateCfgIntParam;
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
 
 typedef struct
 {
@@ -3977,7 +3986,7 @@ typedef struct
 
 #ifdef WLAN_FEATURE_ROAM_SCAN_OFFLOAD
 #define SIR_PER_ROAM_MAX_AP_CNT 20
-#define SIR_PER_ROAM_MAX_CANDIDATE_CNT 10
+#define SIR_PER_ROAM_MAX_CANDIDATE_CNT 32
 typedef struct __attribute__((packed))
 {
     tANI_U8    channelNumber;
@@ -4072,6 +4081,7 @@ typedef struct sSirPERRoamOffloadScanReq
   tANI_U32  waitPeriodForNextPERScan;
   tANI_U32  PERtimerThreshold;
   tANI_U32  PERroamTriggerPercent;
+  tANI_S16  PERRoamFullScanThreshold;
 } tSirPERRoamOffloadScanReq, *tpSirPERRoamOffloadScanReq;
 
 typedef struct sSirPERRoamTriggerScanReq

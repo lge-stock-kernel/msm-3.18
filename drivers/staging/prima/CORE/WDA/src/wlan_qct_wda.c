@@ -5200,7 +5200,13 @@ void WDA_UpdateSTAParams(tWDA_CbContext *pWDA,
  * FUNCTION: WDA_ConvertWniCfgIdToHALCfgId
  * Convert the WNI CFG ID to HAL CFG ID
  */ 
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+#if 0
 static inline v_U8_t WDA_ConvertWniCfgIdToHALCfgId(v_U32_t wniCfgId)
+#else
+static inline tANI_U16 WDA_ConvertWniCfgIdToHALCfgId(v_U32_t wniCfgId)
+#endif
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
 {
    switch(wniCfgId)
    {
@@ -5304,12 +5310,22 @@ static inline v_U8_t WDA_ConvertWniCfgIdToHALCfgId(v_U32_t wniCfgId)
          return QWLAN_HAL_CFG_ENABLE_LPWR_IMG_TRANSITION;
       case WNI_CFG_ENABLE_RTSCTS_HTVHT:
          return QWLAN_HAL_CFG_ENABLE_RTSCTS_HTVHT;
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+      case WNI_CFG_ENABLE_MC_ADDR_LIST:
+         return QWLAN_HAL_CFG_ENABLE_MC_ADDR_LIST;
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
       default:
       {
          VOS_TRACE(VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
                "There is no HAL CFG Id corresponding to WNI CFG Id: %d",
                        wniCfgId);
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+#if 0
          return VOS_STATUS_E_INVAL;
+#else
+         return QWLAN_HAL_CFG_MAX_PARAMS;
+#endif
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
       }
    }
 }
@@ -5436,6 +5452,167 @@ VOS_STATUS WDA_UpdateCfg(tWDA_CbContext *pWDA, tSirMsgQ *cfgParam)
 #endif
    return CONVERT_WDI2VOS_STATUS(status) ;
 }
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+/*
+ * FUNCTION: WDA_UpdateCfgIntParamCb
+ *
+ */
+void WDA_UpdateCfgIntParamCb(WDI_Status   wdiStatus, void* pUserData)
+{
+   tWDA_CbContext *pWDA = (tWDA_CbContext *)pUserData ;
+   WDI_UpdateCfgReqParamsType *wdiCfgParam =
+                  (WDI_UpdateCfgReqParamsType *)pWDA->wdaWdiCfgUpdateIntMsg ;
+   VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_INFO,
+                                          "<------ %s " ,__func__);
+   /*
+    * currently there is no response message is expected between PE and
+    * WDA, Failure return from WDI is a ASSERT condition
+    */
+   if (WDI_STATUS_SUCCESS != wdiStatus)
+       VOS_TRACE(VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
+                  "%s: CFG (%d) config failure", __func__,
+              ((tHalCfg *)(wdiCfgParam->pConfigBuffer))->type);
+
+   if (wdiCfgParam && wdiCfgParam->pConfigBuffer)
+   {
+       vos_mem_free(wdiCfgParam->pConfigBuffer);
+       wdiCfgParam->pConfigBuffer = NULL;
+   }
+
+   if (pWDA->wdaWdiCfgUpdateIntMsg)
+   {
+       vos_mem_free(pWDA->wdaWdiCfgUpdateIntMsg);
+       pWDA->wdaWdiCfgUpdateIntMsg = NULL;
+   }
+
+   return ;
+}
+
+/*
+ * FUNCTION: WDA_UpdateCfgIntParam
+ *
+ */
+VOS_STATUS WDA_UpdateCfgIntParam(tWDA_CbContext *pWDA,
+               tSirUpdateCfgIntParam *cfgParam)
+{
+
+   WDI_Status status = WDI_STATUS_SUCCESS ;
+   tANI_U32 val =0;
+   tpAniSirGlobal pMac;
+   WDI_UpdateCfgReqParamsType *wdiCfgReqParam = NULL ;
+   tHalCfg        *tlvStruct = NULL ;
+   tANI_U8        *tlvStructStart = NULL ;
+   v_PVOID_t      *configParam;
+   tANI_U32       configParamSize;
+   tANI_U32       *configDataValue;
+   tANI_U32 cfgId;
+   tANI_U32 tlv_type = QWLAN_HAL_CFG_MAX_PARAMS;
+
+   VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
+                 " ------> %s " ,__func__);
+
+   if (cfgParam)
+   {
+       cfgId = cfgParam->cfgId;
+   }
+   else
+   {
+      VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
+                          FL("Invoked with NULL cfgParam"));
+      return VOS_STATUS_E_FAILURE;
+   }
+
+   if (!pWDA)
+   {
+      VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
+                          FL("Invoked with invalid WDA context"));
+      return VOS_STATUS_E_FAILURE;
+   }
+
+   if (NULL != pWDA->wdaWdiCfgUpdateIntMsg)
+   {
+      VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
+                           FL("wdaWdiCfgApiMsgParam is not NULL"));
+
+      return VOS_STATUS_E_FAILURE;
+   }
+
+   pMac = (tpAniSirGlobal )VOS_GET_MAC_CTXT(pWDA->pVosContext) ;
+   if (NULL == pMac)
+   {
+      VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
+                 FL("Invoked with invalid MAC context "));
+      return VOS_STATUS_E_FAILURE;
+   }
+
+   if (wlan_cfgGetInt(pMac, (tANI_U16)cfgId , &val) != eSIR_SUCCESS)
+   {
+       VOS_TRACE(VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
+                     FL("Fail to cfg get id %d"), cfgId);
+       return VOS_STATUS_E_FAILURE;
+   }
+
+   /* Get TLV type */
+   tlv_type = WDA_ConvertWniCfgIdToHALCfgId(cfgId);
+   if (tlv_type == QWLAN_HAL_CFG_MAX_PARAMS)
+   {
+       VOS_TRACE(VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
+                      "Failed to Convert cfg to hal id %d", cfgId);
+       return VOS_STATUS_E_FAILURE;
+   }
+
+   wdiCfgReqParam = (WDI_UpdateCfgReqParamsType *)vos_mem_malloc(
+                                   sizeof(WDI_UpdateCfgReqParamsType)) ;
+   if (NULL == wdiCfgReqParam)
+   {
+      VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
+                           "%s: VOS MEM Alloc Failure", __func__);
+      return VOS_STATUS_E_NOMEM;
+   }
+
+   configParamSize = (sizeof(tHalCfg) + (sizeof(tANI_U32))) * 1;
+   configParam = vos_mem_malloc(configParamSize);
+   if (NULL == configParam)
+   {
+      VOS_TRACE(VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
+                "%s: VOS MEM Alloc Failure", __func__);
+      vos_mem_free(wdiCfgReqParam);
+      return VOS_STATUS_E_NOMEM;
+   }
+
+   vos_mem_set(configParam, configParamSize, 0);
+   wdiCfgReqParam->pConfigBuffer = configParam;
+   tlvStruct = (tHalCfg *)configParam;
+   tlvStructStart = (tANI_U8 *)configParam;
+   /* Set TLV type */
+   tlvStruct->type = tlv_type;
+   tlvStruct->length = sizeof(tANI_U32);
+   configDataValue = (tANI_U32 *)(tlvStruct + 1);
+   *configDataValue = (tANI_U32)val;
+   VOS_TRACE(VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_INFO,
+             "cfg_id %d tlv_type %d tlv_value %d \n",
+             cfgId, tlvStruct->type, val);
+   tlvStruct = (tHalCfg *)(( (tANI_U8 *) tlvStruct
+                            + sizeof(tHalCfg) + tlvStruct->length)) ;
+   wdiCfgReqParam->uConfigBufferLen = (tANI_U8 *)tlvStruct - tlvStructStart ;
+   wdiCfgReqParam->wdiReqStatusCB = NULL;
+   /* store Params pass it to WDI */
+   pWDA->wdaWdiCfgUpdateIntMsg = (void *)wdiCfgReqParam ;
+   status = WDI_UpdateCfgReq(wdiCfgReqParam,
+                   (WDI_UpdateCfgRspCb )WDA_UpdateCfgIntParamCb, pWDA) ;
+   if (IS_WDI_STATUS_FAILURE(status))
+   {
+      VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
+                 "Failure in WDA_UpdateCfgIntParam WDI API, free memory ");
+      vos_mem_free(wdiCfgReqParam->pConfigBuffer);
+      wdiCfgReqParam->pConfigBuffer = NULL;
+      vos_mem_free(pWDA->wdaWdiCfgUpdateIntMsg);
+      pWDA->wdaWdiCfgUpdateIntMsg = NULL;
+   }
+
+   return CONVERT_WDI2VOS_STATUS(status);
+}
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
 
 VOS_STATUS WDA_GetWepKeysFromCfg( tWDA_CbContext *pWDA, 
                                                       v_U8_t *pDefaultKeyId,
@@ -8851,8 +9028,6 @@ VOS_STATUS WDA_ProcessAggrAddTSReq(tWDA_CbContext *pWDA,
    {
       VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_ERROR,
               "Failure in ADD TS REQ Params WDI API, free all the memory " );
-      vos_mem_free(pWdaParams->wdaWdiApiMsgParam) ;
-      vos_mem_free(pWdaParams);
 
       /* send the failure response back to PE*/
       for( i = 0; i < HAL_QOS_NUM_AC_MAX; i++ )
@@ -8862,6 +9037,10 @@ VOS_STATUS WDA_ProcessAggrAddTSReq(tWDA_CbContext *pWDA,
 
       WDA_SendMsg(pWdaParams->pWdaContext, WDA_AGGR_QOS_RSP, 
                         (void *)pAggrAddTsReqParams , 0) ;
+
+      vos_mem_free(pWdaParams->wdaWdiApiMsgParam) ;
+      vos_mem_free(pWdaParams);
+
    }
    return CONVERT_WDI2VOS_STATUS(status) ;
 }
@@ -13357,7 +13536,9 @@ VOS_STATUS WDA_HALDumpCmdReq(tpAniSirGlobal   pMac, tANI_U32  cmd,
             VOS_TRACE( VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
             "%s: WDA_HALDUMP reporting  other error",__func__);
          }
-         VOS_BUG(0);
+         if (!(vos_isLoadUnloadInProgress() ||
+               vos_is_logp_in_progress(VOS_MODULE_ID_VOSS, NULL)))
+             VOS_BUG(0);
       }
    }
    return status;
@@ -15317,6 +15498,27 @@ VOS_STATUS WDA_McProcessMsg( v_CONTEXT_t pVosContext, vos_msg_t *pMsg )
          }
          break;
       }
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+      case WDA_UPDATE_CFG_INT_PARAM:
+      {
+         if(pWDA->wdaState == WDA_READY_STATE)
+         {
+            WDA_UpdateCfgIntParam(pWDA, (tSirUpdateCfgIntParam *)pMsg->bodyptr);
+            vos_mem_free(pMsg->bodyptr);
+         }
+         else
+         {
+            if(NULL != pMsg->bodyptr)
+            {
+               vos_mem_free(pMsg->bodyptr);
+            }
+            VOS_TRACE( VOS_MODULE_ID_WDA, VOS_TRACE_LEVEL_INFO,
+                       " WDA_UPDATE_CFG_INT_PARAM req in wrong state %d",
+                       pWDA->wdaState );
+         }
+         break;
+      }
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
       case WDA_ENTER_IMPS_REQ:
       {
          if(pWDA->wdaState == WDA_READY_STATE)
@@ -18142,6 +18344,8 @@ VOS_STATUS WDA_ProcessPERRoamScanOffloadReq(tWDA_CbContext *pWDA,
           pPERRoamOffloadScanReqParams->PERtimerThreshold;
    pwdiPERRoamOffloadScanInfo->isPERRoamCCAEnabled =
           pPERRoamOffloadScanReqParams->isPERRoamCCAEnabled;
+   pwdiPERRoamOffloadScanInfo->PERRoamFullScanThreshold =
+          pPERRoamOffloadScanReqParams->PERRoamFullScanThreshold;
    pwdiPERRoamOffloadScanInfo->PERroamTriggerPercent =
           pPERRoamOffloadScanReqParams->PERroamTriggerPercent;
 

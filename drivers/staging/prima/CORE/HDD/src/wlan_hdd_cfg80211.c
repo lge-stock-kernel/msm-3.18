@@ -3902,6 +3902,7 @@ __wlan_hdd_cfg80211_extscan_set_ssid_hotlist(struct wiphy *wiphy,
     uint32_t request_id;
     char ssid_string[SIR_MAC_MAX_SSID_LENGTH + 1] = {'\0'};
     int ssid_len;
+    int ssid_length;
     eHalStatus status;
     int i, rem, retval;
     unsigned long rc;
@@ -3992,12 +3993,15 @@ __wlan_hdd_cfg80211_extscan_set_ssid_hotlist(struct wiphy *wiphy,
             hddLog(LOGE, FL("attr ssid failed"));
             goto fail;
         }
-        nla_memcpy(ssid_string,
-               tb2[PARAM_SSID],
-               sizeof(ssid_string));
+        ssid_length = nla_strlcpy(ssid_string, tb2[PARAM_SSID],
+                                  sizeof(ssid_string));
         hddLog(LOG1, FL("SSID %s"),
                ssid_string);
         ssid_len = strlen(ssid_string);
+        if (ssid_length > SIR_MAC_MAX_SSID_LENGTH) {
+                hddLog(LOGE, FL("Invalid ssid length"));
+                goto fail;
+        }
         memcpy(request->ssid[i].ssid.ssId, ssid_string, ssid_len);
         request->ssid[i].ssid.length = ssid_len;
         request->ssid[i].ssid.ssId[ssid_len] = '\0';
@@ -7964,7 +7968,9 @@ int wlan_hdd_cfg80211_init(struct device *dev,
 #endif
     )
     {
-        wiphy->flags |= WIPHY_FLAG_SUPPORTS_FW_ROAM;
+// LGE_CHANGE_S, ella.hwang@lge.com, not use driver-base roaming
+        // wiphy->flags |= WIPHY_FLAG_SUPPORTS_FW_ROAM;
+// LGE_CHANGE_E, ella.hwang@lge.com, not use driver-base roaming
     }
 #endif
 #ifdef FEATURE_WLAN_TDLS
@@ -12620,6 +12626,42 @@ VOS_STATUS wlan_hdd_cfg80211_roam_metrics_handover(hdd_adapter_t * pAdapter,
 }
 #endif
 
+
+/**
+ * wlan_hdd_cfg80211_validate_scan_req - validate scan request
+ * @scan_req: scan request to be checked
+ *
+ * Return: true or false
+ */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
+static inline bool wlan_hdd_cfg80211_validate_scan_req(struct
+                                                       cfg80211_scan_request
+                                                       *scan_req)
+{
+        if (!scan_req || !scan_req->wiphy) {
+                hddLog(VOS_TRACE_LEVEL_ERROR, "Invalid scan request");
+                return false;
+        }
+        if (vos_is_load_unload_in_progress(VOS_MODULE_ID_HDD, NULL)) {
+                hddLog(VOS_TRACE_LEVEL_ERROR, "Load/Unload in progress");
+                return false;
+        }
+        return true;
+}
+#else
+static inline bool wlan_hdd_cfg80211_validate_scan_req(struct
+                                                       cfg80211_scan_request
+                                                       *scan_req)
+{
+        if (!scan_req || !scan_req->wiphy) {
+                hddLog(VOS_TRACE_LEVEL_ERROR, "Invalid scan request");
+                return false;
+        }
+        return true;
+}
+#endif
+
+
 /*
  * FUNCTION: hdd_cfg80211_scan_done_callback
  * scanning callback function, called after finishing scan
@@ -12699,8 +12741,19 @@ static eHalStatus hdd_cfg80211_scan_done_callback(tHalHandle halHandle,
     {
         ret = wlan_hdd_cfg80211_update_bss((WLAN_HDD_GET_CTX(pAdapter))->wiphy,
                                         pAdapter);
+// LGE_CHANGE_S, CN#02416520 Kernel crash when turn off WiFi
+#if 0
         if (0 > ret)
             hddLog(VOS_TRACE_LEVEL_INFO, "%s: NO SCAN result", __func__);
+#else
+        if (0 > ret) {
+            hddLog(VOS_TRACE_LEVEL_INFO, "%s: NO SCAN result", __func__);
+    #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0))
+            goto allow_suspend;
+    #endif
+        }
+#endif
+// LGE_CHANGE_E, CN#02416520 Kernel crash when turn off WiFi
     }
 
     /* If any client wait scan result through WEXT
@@ -12736,9 +12789,17 @@ static eHalStatus hdd_cfg80211_scan_done_callback(tHalHandle halHandle,
     /* Scan is no longer pending */
     pScanInfo->mScanPending = VOS_FALSE;
 
-    if (!req || req->wiphy == NULL)
+    if (!wlan_hdd_cfg80211_validate_scan_req(req))
     {
-        hddLog(VOS_TRACE_LEVEL_ERROR, "request is became NULL");
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0))
+            hddLog(VOS_TRACE_LEVEL_ERROR, FL("interface state %s"),
+                   iface_down ? "up" : "down");
+#endif
+
+        if (pAdapter->dev) {
+               hddLog(VOS_TRACE_LEVEL_ERROR, FL("device name %s"),
+                      pAdapter->dev->name);
+        }
         complete(&pScanInfo->abortscan_event_var);
         goto allow_suspend;
     }
@@ -12824,13 +12885,6 @@ v_BOOL_t hdd_isConnectionInProgress( hdd_context_t *pHddCtx)
     VOS_STATUS status = 0;
     v_U8_t staId = 0;
     v_U8_t *staMac = NULL;
-
-    if (TRUE == pHddCtx->btCoexModeSet)
-    {
-        VOS_TRACE( VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
-           FL("BTCoex Mode operation in progress"));
-        return VOS_TRUE;
-    }
 
     status = hdd_get_front_adapter ( pHddCtx, &pAdapterNode );
 
@@ -13057,6 +13111,12 @@ int __wlan_hdd_cfg80211_scan( struct wiphy *wiphy,
 
     /* Check if scan is allowed at this point of time.
      */
+    if (TRUE == pHddCtx->btCoexModeSet)
+    {
+        VOS_TRACE( VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
+           FL("BTCoex Mode operation in progress"));
+        return -EBUSY;
+    }
     if (hdd_isConnectionInProgress(pHddCtx))
     {
         hddLog(VOS_TRACE_LEVEL_ERROR, FL("Scan not allowed"));
@@ -14824,15 +14884,17 @@ disconnected:
      hddLog(LOG1,
               FL("Set HDD connState to eConnectionState_NotConnected"));
     pHddStaCtx->conn_info.connState = eConnectionState_NotConnected;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0)
-    /* Sending disconnect event to userspace for kernel version < 3.11
-     * is handled by __cfg80211_disconnect call to __cfg80211_disconnected
-     */
-    hddLog(LOG1, FL("Send disconnected event to userspace"));
 
-    wlan_hdd_cfg80211_indicate_disconnect(pAdapter->dev, true,
-                                          WLAN_REASON_UNSPECIFIED);
+// LGE_CHANGE_S, neo-wifi@lge.com, remove disconnect mesg which locally generated from driver
+#if 0
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0)
+    // Sending disconnect event to userspace for kernel version < 3.11
+    // is handled by __cfg80211_disconnect call to __cfg80211_disconnected
+    hddLog(LOG1, FL("Send disconnected event to userspace"));
+    wlan_hdd_cfg80211_indicate_disconnect(pAdapter->dev, true, WLAN_REASON_UNSPECIFIED);
 #endif
+#endif
+// LGE_CHANGE_E, neo-wifi@lge.com, remove disconnect mesg which locally generated from driver
 
     EXIT();
     return result;
@@ -16118,6 +16180,14 @@ static int __wlan_hdd_cfg80211_get_station(struct wiphy *wiphy, struct net_devic
 
     sinfo->rx_packets = pAdapter->hdd_stats.summary_stat.rx_frm_cnt;
     sinfo->filled |= STATION_INFO_RX_PACKETS;
+
+// LGE_CHANGE_S,, 2017/03/27, neo-wifi@lge.com, Add Statistic log
+    {
+        printk("[WLAN Info] RSSI=%3d, MCS=%2d, TxFlag=%2d, Tx=%9d, TxRetry=%9d, TxFail=%9d, Rx=%9d\n",
+                sinfo->signal, sinfo->txrate.mcs, sinfo->txrate.flags, sinfo->tx_packets,
+                sinfo->tx_retries, sinfo->tx_failed, sinfo->rx_packets);
+    }
+// LGE_CHANGE_E,, 2017/03/27, neo-wifi@lge.com, Add Statistic log
 
     if (rate_flags & eHAL_TX_RATE_LEGACY)
         hddLog(LOG1, FL("Reporting RSSI:%d legacy rate %d pkt cnt tx %d rx %d"),
@@ -19102,6 +19172,12 @@ static int __wlan_hdd_cfg80211_testmode(struct wiphy *wiphy, void *data, int len
             if ((hb_params_temp->cmd == LPHB_SET_TCP_PARAMS_INDID) &&
                 (hb_params_temp->params.lphbTcpParamReq.timePeriodSec == 0))
                 return -EINVAL;
+
+            if (buf_len > sizeof(*hb_params)) {
+                hddLog(LOGE, FL("buf_len=%d exceeded hb_params size limit"),
+                       buf_len);
+                return -ERANGE;
+            }
 
             hb_params = (tSirLPHBReq *)vos_mem_malloc(sizeof(tSirLPHBReq));
             if (NULL == hb_params)

@@ -172,8 +172,16 @@ static const hdd_freq_chan_map_t freq_chan_map[] = { {2412, 1}, {2417, 2},
 #endif
 #define  WE_SET_RTS_CTS_HTVHT             21
 #define  WE_SET_MONITOR_STATE             22
+
+// LGE_CHANGE_S, neo-wifi@lge.com, change 'WE_SET_PROXIMITY_ENABLE' value from 24 to 23
+#if 0
 #define  WE_SET_PKT_STATS_ENABLE_DISABLE  23
 #define  WE_SET_PROXIMITY_ENABLE  24
+#else
+#define  WE_SET_PKT_STATS_ENABLE_DISABLE  24
+#define  WE_SET_PROXIMITY_ENABLE  23
+#endif
+// LGE_CHANGE_E, neo-wifi@lge.com, change 'WE_SET_PROXIMITY_ENABLE' value from 24 to 23
 
 /* Private ioctls and their sub-ioctls */
 #define WLAN_PRIV_SET_NONE_GET_INT    (SIOCIWFIRSTPRIV + 1)
@@ -1022,6 +1030,9 @@ static void hdd_GetSnrCB(tANI_S8 snr, tANI_U32 staId, void *pContext)
 
    /* serialization is complete */
    spin_unlock(&hdd_context_lock);
+
+   printk("[WLAN Info] SNR = %d\n", snr);
+
 }
 
 VOS_STATUS wlan_hdd_get_rssi(hdd_adapter_t *pAdapter, v_S7_t *rssi_value)
@@ -2565,6 +2576,13 @@ static int __iw_set_genie(struct net_device *dev,
         hddLog(VOS_TRACE_LEVEL_INFO, "%s: IE[0x%X], LEN[%d]",
             __func__, elementId, eLen);
 
+        if (remLen < eLen) {
+            hddLog(LOGE, "Remaining len: %u less than ie len: %u",
+                   remLen, eLen);
+            ret = -EINVAL;
+            goto exit;
+        }
+
         switch ( elementId )
          {
             case IE_EID_VENDOR:
@@ -2647,8 +2665,11 @@ static int __iw_set_genie(struct net_device *dev,
                 hddLog (LOGE, "%s Set UNKNOWN IE %X",__func__, elementId);
                 goto exit;
     }
-        genie += eLen;
         remLen -= eLen;
+
+        /* Move genie only if next element is present */
+        if (remLen >= 2)
+            genie += eLen;
     }
 
 exit:
@@ -4199,6 +4220,7 @@ void* wlan_hdd_change_country_code_callback(void *pAdapter)
     return NULL;
 }
 
+
 static int __iw_set_nick(struct net_device *dev,
                        struct iw_request_info *info,
                        union iwreq_data *wrqu, char *extra)
@@ -5169,7 +5191,7 @@ static int iw_set_mlme(struct net_device *dev,
     return ret;
 }
 
-int wlan_hdd_set_proximity(int set_value)
+int wlan_hdd_set_proximity(int set_value, tHalHandle hal)
 {
     sHwCalValues hwCalValues;
     uint16 hwCalTxPower;
@@ -5190,12 +5212,21 @@ int wlan_hdd_set_proximity(int set_value)
 
         txPwr = (int8)(hwCalTxPower & 0x00FF);
         txPwr = txPwr/10;
+/* http://mlm.lge.com/di/browse/WIFI-3106
+     Fix QCT Power reduction bug, case #02795445
         if (txPwr < TX_PWR_MIN)
             txPwr = TX_PWR_MIN;
         if (txPwr > TX_PWR_MAX)
             txPwr = TX_PWR_MAX;
+*/
+       if (txPwr == 0)
+           txPwr = TX_PWR_DEF;
+       else if (txPwr < TX_PWR_MIN)
+           txPwr = TX_PWR_MIN;
+       else if (txPwr > TX_PWR_MAX)
+           txPwr = TX_PWR_MAX;
 
-        if (sme_SetMaxTxPowerPerBand(eCSR_BAND_24, txPwr) !=
+        if (sme_SetMaxTxPowerPerBand(eCSR_BAND_24, txPwr, hal) !=
                                 eHAL_STATUS_SUCCESS) {
             hddLog(VOS_TRACE_LEVEL_ERROR,
               FL("Setting tx power failed for 2.4GHz band %d"), txPwr);
@@ -5204,12 +5235,21 @@ int wlan_hdd_set_proximity(int set_value)
 
         txPwr = (int8)((hwCalTxPower >> 8) & 0x00FF);
         txPwr /= 10;
+/* http://mlm.lge.com/di/browse/WIFI-3106
+     Fix QCT Power reduction bug, case #02795445
         if (txPwr < TX_PWR_MIN)
             txPwr = TX_PWR_MIN;
         if (txPwr > TX_PWR_MAX)
             txPwr = TX_PWR_MAX;
+*/
+        if (txPwr == 0)
+            txPwr = TX_PWR_DEF;
+        else if (txPwr < TX_PWR_MIN)
+           txPwr = TX_PWR_MIN;
+        else if (txPwr > TX_PWR_MAX)
+             txPwr = TX_PWR_MAX;
 
-        if (sme_SetMaxTxPowerPerBand(eCSR_BAND_5G, txPwr) !=
+        if (sme_SetMaxTxPowerPerBand(eCSR_BAND_5G, txPwr, hal) !=
                                 eHAL_STATUS_SUCCESS) {
             hddLog(VOS_TRACE_LEVEL_ERROR,
               FL("setting tx power failed for 5GHz band %d"), txPwr);
@@ -5217,14 +5257,14 @@ int wlan_hdd_set_proximity(int set_value)
         }
     }
     else if(FALSE == set_value) {
-        if (sme_SetMaxTxPowerPerBand(eCSR_BAND_24, txPwr) !=
+        if (sme_SetMaxTxPowerPerBand(eCSR_BAND_24, txPwr, hal) !=
                                 eHAL_STATUS_SUCCESS) {
             hddLog(VOS_TRACE_LEVEL_ERROR,
               FL("Setting tx power failed for 2.4GHz band %d"), txPwr);
             return -EIO;
         }
 
-        if (sme_SetMaxTxPowerPerBand(eCSR_BAND_5G, txPwr) !=
+        if (sme_SetMaxTxPowerPerBand(eCSR_BAND_5G, txPwr, hal) !=
                                 eHAL_STATUS_SUCCESS) {
             hddLog(VOS_TRACE_LEVEL_ERROR,
               FL("setting tx power failed for 5GHz band %d"), txPwr);
@@ -5591,10 +5631,13 @@ static int __iw_setint_getnone(struct net_device *dev,
         }
         case WE_SET_MAX_TX_POWER_2_4:
         {
+           if (NULL == hHal)
+               return -EINVAL;
+
            hddLog(VOS_TRACE_LEVEL_INFO,
                   "%s: Setting maximum tx power %d dBm for 2.4 GHz band",
                   __func__, set_value);
-           if (sme_SetMaxTxPowerPerBand(eCSR_BAND_24, set_value) !=
+           if (sme_SetMaxTxPowerPerBand(eCSR_BAND_24, set_value, hHal) !=
                                         eHAL_STATUS_SUCCESS)
            {
               hddLog(VOS_TRACE_LEVEL_ERROR,
@@ -5607,10 +5650,13 @@ static int __iw_setint_getnone(struct net_device *dev,
         }
         case WE_SET_MAX_TX_POWER_5_0:
         {
+           if (NULL == hHal)
+               return -EINVAL;
+
            hddLog(VOS_TRACE_LEVEL_INFO,
                   "%s: Setting maximum tx power %d dBm for 5.0 GHz band",
                   __func__, set_value);
-           if (sme_SetMaxTxPowerPerBand(eCSR_BAND_5G, set_value) !=
+           if (sme_SetMaxTxPowerPerBand(eCSR_BAND_5G, set_value, hHal) !=
                                         eHAL_STATUS_SUCCESS)
            {
               hddLog(VOS_TRACE_LEVEL_ERROR,
@@ -5914,7 +5960,10 @@ static int __iw_setint_getnone(struct net_device *dev,
         }
         case WE_SET_PROXIMITY_ENABLE:
         {
-            ret = wlan_hdd_set_proximity(set_value);
+           if (NULL == hHal)
+               return -EINVAL;
+
+            ret = wlan_hdd_set_proximity(set_value, hHal);
             break;
         }
         default:
@@ -8226,9 +8275,15 @@ static int __iw_set_dynamic_mcbc_filter(struct net_device *dev,
                "%s: Set MC BC Filter Config request: %d suspend %d",
                __func__, pRequest->mcastBcastFilterSetting,
                pHddCtx->hdd_wlan_suspended);
-
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+#if 0
         pHddCtx->configuredMcastBcastFilter = pRequest->mcastBcastFilterSetting;
-
+#else
+        spin_lock(&pHddCtx->filter_lock);
+        pHddCtx->configuredMcastBcastFilter = pRequest->mcastBcastFilterSetting;
+        spin_unlock(&pHddCtx->filter_lock);
+#endif
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
         if (pHddCtx->hdd_wlan_suspended)
         {
             wlanRxpFilterParam = vos_mem_malloc(sizeof(tSirWlanSetRxpFilters));
@@ -8242,7 +8297,19 @@ static int __iw_set_dynamic_mcbc_filter(struct net_device *dev,
             wlanRxpFilterParam->configuredMcstBcstFilterSetting =
                 pRequest->mcastBcastFilterSetting;
             wlanRxpFilterParam->setMcstBcstFilter = TRUE;
-
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+            /* Fwr expect offload needs to clear before set */
+            hdd_conf_hostoffload(pAdapter, FALSE);
+            spin_lock(&pHddCtx->filter_lock);
+            pHddCtx->configuredMcastBcastFilter = pRequest->mcastBcastFilterSetting;
+            spin_unlock(&pHddCtx->filter_lock);
+            if (VOS_TRUE == pHddCtx->sus_res_mcastbcast_filter_valid)
+            {
+                hddLog(VOS_TRACE_LEVEL_INFO, "%s: pRequest->mcastBcastFilterSetting ", __func__);
+                pHddCtx->sus_res_mcastbcast_filter =
+                         pRequest->mcastBcastFilterSetting;
+            }
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
             hdd_conf_hostoffload(pAdapter, TRUE);
             wlanRxpFilterParam->configuredMcstBcstFilterSetting =
                                 pHddCtx->configuredMcastBcastFilter;
@@ -8263,12 +8330,18 @@ static int __iw_set_dynamic_mcbc_filter(struct net_device *dev,
                 vos_mem_free(wlanRxpFilterParam);
                 return -EINVAL;
             }
-
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+#if 0
             if (VOS_TRUE == pHddCtx->sus_res_mcastbcast_filter_valid)
             {
                 pHddCtx->sus_res_mcastbcast_filter =
                          pRequest->mcastBcastFilterSetting;
             }
+#else
+            /* mc add list cfg item configuration in fwr */
+            hdd_mc_addr_list_cfg_config(pHddCtx, true);
+#endif
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
         }
     }
 
@@ -8321,9 +8394,17 @@ static int __iw_clear_dynamic_mcbc_filter(struct net_device *dev,
     {
         return ret;
     }
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+#if 0
     //Reset the filter to INI value as we have to clear the dynamic filter
     pHddCtx->configuredMcastBcastFilter = pHddCtx->cfg_ini->mcastBcastFilterSetting;
-
+#else
+    spin_lock(&pHddCtx->filter_lock);
+    //Reset the filter to INI value as we have to clear the dynamic filter
+    pHddCtx->configuredMcastBcastFilter = pHddCtx->cfg_ini->mcastBcastFilterSetting;
+    spin_unlock(&pHddCtx->filter_lock);
+#endif
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
     //Configure FW with new setting
     if (pHddCtx->hdd_wlan_suspended)
     {
@@ -8338,7 +8419,20 @@ static int __iw_clear_dynamic_mcbc_filter(struct net_device *dev,
         wlanRxpFilterParam->configuredMcstBcstFilterSetting =
             pHddCtx->configuredMcastBcastFilter;
         wlanRxpFilterParam->setMcstBcstFilter = TRUE;
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+        /* Fwr expect offload needs to clear before set */
+        hdd_conf_hostoffload(pAdapter, FALSE);
+        spin_lock(&pHddCtx->filter_lock);
+        pHddCtx->configuredMcastBcastFilter =
+            pHddCtx->cfg_ini->mcastBcastFilterSetting;
+        spin_unlock(&pHddCtx->filter_lock);
 
+        if (VOS_TRUE == pHddCtx->sus_res_mcastbcast_filter_valid)
+        {
+            pHddCtx->sus_res_mcastbcast_filter =
+                     pHddCtx->cfg_ini->mcastBcastFilterSetting;
+        }
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
         hdd_conf_hostoffload(pAdapter, TRUE);
         wlanRxpFilterParam->configuredMcstBcstFilterSetting =
                             pHddCtx->configuredMcastBcastFilter;
@@ -8353,13 +8447,18 @@ static int __iw_clear_dynamic_mcbc_filter(struct net_device *dev,
             vos_mem_free(wlanRxpFilterParam);
             return -EINVAL;
         }
-
+// LGE_CHANGE_S, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
+#if 0
         if (VOS_TRUE == pHddCtx->sus_res_mcastbcast_filter_valid)
         {
             pHddCtx->sus_res_mcastbcast_filter =
                      pHddCtx->cfg_ini->mcastBcastFilterSetting;
         }
-
+#else
+        /* mc add list cfg item configuration in fwr */
+        hdd_mc_addr_list_cfg_config(pHddCtx, true);
+#endif
+// LGE_CHANGE_E, 20161208, neo-wifi@lge.com : Fixed dynamic packet filter, QCT Case 02689114
     }
     EXIT();
     return 0;
@@ -10380,7 +10479,7 @@ static const iw_handler      we_handler[] =
    (iw_handler) NULL,              /* SIOCGIWSENS */
    (iw_handler) NULL,             /* SIOCSIWRANGE */
    (iw_handler) iw_get_range,      /* SIOCGIWRANGE */
-   (iw_handler) NULL,              /* SIOCSIWPRIV */
+   (iw_handler) NULL,       /* SIOCSIWPRIV */
    (iw_handler) NULL,             /* SIOCGIWPRIV */
    (iw_handler) NULL,             /* SIOCSIWSTATS */
    (iw_handler) NULL,             /* SIOCGIWSTATS */

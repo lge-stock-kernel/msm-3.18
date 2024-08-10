@@ -154,8 +154,16 @@ tSirRetStatus macStop(tHalHandle hHal, tHalStopType stopType)
 {
     tANI_U8 i;
     tpAniSirGlobal pMac = (tpAniSirGlobal) hHal;
+// LGE_CHANGE_S, 20161129, neo-wifi@lge.com : Fixed patch for Wi-Fi driver loading failure, QCT Case 02707530
+#if 0
     peStop(pMac);
-    cfgCleanup( pMac );
+#else
+    //In FTM mode, peStart is not called during driver load.
+    if (pMac->gDriverType != eDRIVER_TYPE_MFG)
+        peStop(pMac);
+#endif
+// LGE_CHANGE_E, 20161129, neo-wifi@lge.com : Fixed patch for Wi-Fi driver loading failure, QCT Case 02707530
+	cfgCleanup( pMac );
     // need to free memory if not called in reset context.
     // in reset context this memory will be freed by HDD.
     if(false == pMac->sys.abort)

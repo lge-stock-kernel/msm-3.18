@@ -707,6 +707,7 @@ static int msm_isp_update_put_buf_cnt_unsafe(
 	} else if (bufq->buf_type == ISP_SHARE_BUF &&
 		(*put_buf_mask & (1 << id)) != 0) {
 		return -ENOTEMPTY;
+
 	}
 
 	if (buf_info &&

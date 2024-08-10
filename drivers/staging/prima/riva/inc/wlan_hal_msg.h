@@ -5893,6 +5893,8 @@ typedef PACKED_PRE struct PACKED_POST
 #define WLAN_COEX_IND_TYPE_ENABLE_UAPSD (6)
 #define WLAN_COEX_IND_TYPE_DISABLE_UAPSD (7)
 #define WLAN_COEX_IND_TYPE_CXM_FEATURES_NOTIFICATION (8)
+#define WLAN_COEX_IND_TYPE_HID_CONNECTED_WLAN_CONNECTED_IN_2p4 (9)
+#define WLAN_COEX_IND_TYPE_HID_DISCONNECTED_WLAN_CONNECTED_IN_2p4 (10)
 
 typedef PACKED_PRE struct PACKED_POST
 {
@@ -9008,7 +9010,8 @@ typedef PACKED_PRE struct PACKED_POST {
     tANI_U32 waitPeriodForNextPERScan;
     tANI_U32 PERtimerThreshold;
     tANI_U32 PERroamTriggerPercent;
-    tANI_U32 reserved;
+    tANI_S16 PERRoamFullScanThreshold;
+    tANI_U16 reserved;
 } tPerRoamConfigParams, * tpPerRoamConfigParams;
 
 typedef PACKED_PRE struct PACKED_POST

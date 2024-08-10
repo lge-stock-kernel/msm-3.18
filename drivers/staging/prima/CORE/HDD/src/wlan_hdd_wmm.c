@@ -1706,6 +1706,9 @@ VOS_STATUS hdd_wmm_init ( hdd_adapter_t *pAdapter )
    hddWmmDscpToUpMap[24] = SME_QOS_WMM_UP_EE;
    hddWmmDscpToUpMap[32] = SME_QOS_WMM_UP_CL;
    hddWmmDscpToUpMap[40] = SME_QOS_WMM_UP_VI;
+   #ifdef WLAN_MATCH_DSCP_VO
+   hddWmmDscpToUpMap[46] = SME_QOS_WMM_UP_VO;
+   #endif
    hddWmmDscpToUpMap[48] = SME_QOS_WMM_UP_VO;
    hddWmmDscpToUpMap[56] = SME_QOS_WMM_UP_NC;
    return VOS_STATUS_SUCCESS;

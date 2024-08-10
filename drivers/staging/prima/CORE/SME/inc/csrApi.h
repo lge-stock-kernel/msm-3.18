@@ -1188,6 +1188,7 @@ typedef struct tagCsrConfigParam
     tANI_BOOLEAN bFastRoamInConIniFeatureEnabled;
     v_BOOL_t isPERRoamEnabled;
     v_BOOL_t isPERRoamCCAEnabled;
+    v_S15_t PERRoamFullScanThreshold;
     v_U32_t rateUpThreshold;
     v_U32_t rateDownThreshold;
     v_U32_t waitPeriodForNextPERScan;
@@ -1546,6 +1547,18 @@ struct tagCsrDelStaParams
     tCsrBssid peerMacAddr;
     u16 reason_code;
     u8 subtype;
+};
+
+
+/**
+ * struct csr_set_tx_max_pwr_per_band - Req params to
+ * set max tx power per band
+ * @band: band for which power to be set
+ * @power: power to set in dB
+ */
+struct csr_set_tx_max_pwr_per_band {
+    eCsrBand band;
+    tPowerdBm power;
 };
 
 ////////////////////////////////////////////Common SCAN starts
