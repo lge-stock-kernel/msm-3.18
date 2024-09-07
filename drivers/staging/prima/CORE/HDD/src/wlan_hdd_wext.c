@@ -4100,12 +4100,24 @@ VOS_STATUS  wlan_hdd_enter_bmps(hdd_adapter_t *pAdapter, int mode)
    eHalStatus status;
    hdd_context_t *pHddCtx;
    hdd_station_ctx_t *pHddStaCtx = WLAN_HDD_GET_STATION_CTX_PTR(pAdapter);
+   // prevent  beacon miss issues in BMPS with CMW5500 for WFC -for LG only (+)
+   tCsrBssid temp_bssid = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05};
+   // prevent  beacon miss issues in BMPS with CMW5500 for WFC -for LG only (-)
 
    if (NULL == pAdapter)
    {
        hddLog(VOS_TRACE_LEVEL_FATAL, "Adapter NULL");
        return VOS_STATUS_E_FAULT;
    }
+
+   // prevent  beacon miss issues in BMPS with CMW5500 for WFC -for LG only (+)
+   if((pHddStaCtx != NULL) && vos_is_macaddr_equal(((v_MACADDR_t *)pHddStaCtx->conn_info.bssId),
+                            (v_MACADDR_t *) temp_bssid))
+   {
+       hddLog(VOS_TRACE_LEVEL_FATAL,"BMPS is not required");
+       return VOS_STATUS_E_FAILURE;
+   }
+   // prevent  beacon miss issues in BMPS with CMW5500 for WFC -for LG only (-)
 
    hddLog(VOS_TRACE_LEVEL_INFO_HIGH, "power mode=%d", mode);
    pHddCtx = WLAN_HDD_GET_CTX(pAdapter);

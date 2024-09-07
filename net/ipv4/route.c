@@ -110,6 +110,8 @@
 #endif
 #include <net/secure_seq.h>
 
+#include <net/patchcodeid.h>
+
 #define RT_FL_TOS(oldflp4) \
 	((oldflp4)->flowi4_tos & (IPTOS_RT_MASK | RTO_ONLINK))
 
@@ -2190,6 +2192,14 @@ struct rtable *__ip_route_output_key(struct net *net, struct flowi4 *fl4)
 		fl4->saddr = FIB_RES_PREFSRC(net, res);
 
 	dev_out = FIB_RES_DEV(res);
+/* 2012-06-16 jewon.lee@lge.com LGP_DATA_KERNEL_BUGFIX_ROUTE [START] */
+  patch_code_id("LPCP-1244@n@c@vmlinux@route.c@1");
+  if (dev_out == NULL) {
+   printk(KERN_DEBUG "dev_out is null\n");
+   rth = ERR_PTR(-ENETUNREACH);
+   goto out;
+  }
+/* 2012-06-16 jewon.lee@lge.com LGP_DATA_KERNEL_BUGFIX_ROUTE [END] */
 	fl4->flowi4_oif = dev_out->ifindex;
 
 
