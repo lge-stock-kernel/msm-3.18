@@ -23,7 +23,6 @@
 *.symtypes
 *.order
 *.elf
-*.bin
 *.gz
 *.bz2
 *.lzma
@@ -96,3 +95,6 @@ x509.genkey
 
 # Kconfig presets
 all.config
+
+# touch fw hex file
+*.fw.ihex

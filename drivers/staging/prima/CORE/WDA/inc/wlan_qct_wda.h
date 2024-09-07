@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -1107,6 +1107,9 @@ tSirRetStatus uMacPostCtrlMsg(void* pSirGlobal, tSirMbMsg* pMb);
 #define WDA_EXIT_UAPSD_RSP             SIR_HAL_EXIT_UAPSD_RSP
 #define WDA_LOW_RSSI_IND               SIR_HAL_LOW_RSSI_IND 
 #define WDA_BEACON_FILTER_IND          SIR_HAL_BEACON_FILTER_IND
+#define WDA_LOW_POWER_MODE             SIR_HAL_LOW_POWER_MODE
+#define WDA_VOWIFI_MODE                SIR_HAL_VOWIFI_MODE
+
 /// PE <-> HAL WOWL messages
 #define WDA_WOWL_ADD_BCAST_PTRN        SIR_HAL_WOWL_ADD_BCAST_PTRN
 #define WDA_WOWL_DEL_BCAST_PTRN        SIR_HAL_WOWL_DEL_BCAST_PTRN
@@ -1140,8 +1143,6 @@ tSirRetStatus uMacPostCtrlMsg(void* pSirGlobal, tSirMbMsg* pMb);
 
 #define WDA_SET_MAX_TX_POWER_PER_BAND_REQ \
         SIR_HAL_SET_MAX_TX_POWER_PER_BAND_REQ
-#define WDA_SET_MAX_TX_POWER_PER_BAND_RSP \
-        SIR_HAL_SET_MAX_TX_POWER_PER_BAND_RSP
 
 #define WDA_SEND_MSG_COMPLETE          SIR_HAL_SEND_MSG_COMPLETE 
 

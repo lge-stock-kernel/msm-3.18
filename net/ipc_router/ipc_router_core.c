@@ -3064,6 +3064,13 @@ static int msm_ipc_router_write_pkt(struct msm_ipc_port *src,
 	}
 	down_read(&rt_entry->lock_lha4);
 	xprt_info = rt_entry->xprt_info;
+    if (!xprt_info) {
+        IPC_RTR_ERR("%s: Abort NO xprt for node %d\n",
+        __func__, hdr->dst_node_id);
+        up_read(&rt_entry->lock_lha4);
+        kref_put(&rt_entry->ref, ipc_router_release_rtentry);
+        return ret;
+    }
 	ret = ipc_router_get_xprt_info_ref(xprt_info);
 	if (ret < 0) {
 		IPC_RTR_ERR("%s: Abort invalid xprt\n", __func__);
