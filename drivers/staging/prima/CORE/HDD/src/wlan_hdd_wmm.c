@@ -1705,13 +1705,16 @@ VOS_STATUS hdd_wmm_init ( hdd_adapter_t *pAdapter )
    // DSCP to User Priority Lookup Table
    for (dscp = 0; dscp <= WLAN_HDD_MAX_DSCP; dscp++)
    {
-      hddWmmDscpToUpMap[dscp] = SME_QOS_WMM_UP_BE;
+      hddWmmDscpToUpMap[dscp] = dscp >> 3; // Case: 03308628 (BE to VO)
    }
    hddWmmDscpToUpMap[8]  = SME_QOS_WMM_UP_BK;
    hddWmmDscpToUpMap[16] = SME_QOS_WMM_UP_RESV;
    hddWmmDscpToUpMap[24] = SME_QOS_WMM_UP_EE;
    hddWmmDscpToUpMap[32] = SME_QOS_WMM_UP_CL;
    hddWmmDscpToUpMap[40] = SME_QOS_WMM_UP_VI;
+   hddWmmDscpToUpMap[46] = SME_QOS_WMM_UP_VO; // Case: 03308628 (BE to VO)
+   VOS_TRACE(VOS_MODULE_ID_HDD, WMM_TRACE_LEVEL_INFO_LOW,
+             "[%s]:  hddWmmDscpToUpMap[46]=%d", __func__, (int) hddWmmDscpToUpMap[46]);
    hddWmmDscpToUpMap[48] = SME_QOS_WMM_UP_VO;
    hddWmmDscpToUpMap[56] = SME_QOS_WMM_UP_NC;
    return VOS_STATUS_SUCCESS;

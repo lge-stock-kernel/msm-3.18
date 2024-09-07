@@ -82,16 +82,6 @@ limDeactivateMinChannelTimerDuringScan(tpAniSirGlobal pMac)
          */
 
         limDeactivateAndChangeTimer(pMac,eLIM_MIN_CHANNEL_TIMER);
-        if (tx_timer_activate(&pMac->lim.limTimers.gLimMaxChannelTimer)
-                                          == TX_TIMER_ERROR)
-        {
-            /// Could not activate max channel timer.
-            // Log error
-            limLog(pMac,LOGP, FL("could not activate max channel timer"));
-
-            limCompleteMlmScan(pMac, eSIR_SME_RESOURCES_UNAVAILABLE);
-            return TX_TIMER_ERROR;
-        }
     }
     return eSIR_SUCCESS;
 } /*** end limDeactivateMinChannelTimerDuringScan() ***/
@@ -125,14 +115,14 @@ limDeactivateMinChannelTimerDuringScan(tpAniSirGlobal pMac)
  * @return None
  */
 #if defined WLAN_FEATURE_VOWIFI
-void
+eHalStatus
 limCollectBssDescription(tpAniSirGlobal pMac,
                          tSirBssDescription *pBssDescr,
                          tpSirProbeRespBeacon pBPR,
                          tANI_U8  *pRxPacketInfo,
                          tANI_U8  fScanning)
 #else
-void
+eHalStatus
 limCollectBssDescription(tpAniSirGlobal pMac,
                          tSirBssDescription *pBssDescr,
                          tpSirProbeRespBeacon pBPR,
@@ -153,6 +143,17 @@ limCollectBssDescription(tpAniSirGlobal pMac,
     pBody = WDA_GET_RX_MPDU_DATA(pRxPacketInfo);
     rfBand = WDA_GET_RX_RFBAND(pRxPacketInfo);
 
+    /**
+     * Drop all the beacons and probe response without P2P IE during P2P search
+     */
+    if (NULL != pMac->lim.gpLimMlmScanReq && pMac->lim.gpLimMlmScanReq->p2pSearch)
+    {
+        if (NULL == limGetP2pIEPtr(pMac, (pBody + SIR_MAC_B_PR_SSID_OFFSET), ieLen))
+        {
+            limLog( pMac, LOG3, MAC_ADDRESS_STR, MAC_ADDR_ARRAY(pHdr->bssId));
+            return eHAL_STATUS_FAILURE;
+        }
+    }
 
     /**
      * Length of BSS desription is without length of
@@ -307,7 +308,7 @@ limCollectBssDescription(tpAniSirGlobal pMac,
         pBssDescr->aniIndicator,
         ieLen );
 
-    return;
+    return eHAL_STATUS_SUCCESS;
 } /*** end limCollectBssDescription() ***/
 
 /**
@@ -537,11 +538,19 @@ limCheckAndAddBssDescription(tpAniSirGlobal pMac,
 
     // In scan state, store scan result.
 #if defined WLAN_FEATURE_VOWIFI
-    limCollectBssDescription(pMac, &pBssDescr->bssDescription,
+    status = limCollectBssDescription(pMac, &pBssDescr->bssDescription,
                              pBPR, pRxPacketInfo, fScanning);
+    if (eHAL_STATUS_SUCCESS != status)
+    {
+        goto last;
+    }
 #else
-    limCollectBssDescription(pMac, &pBssDescr->bssDescription,
+    status = limCollectBssDescription(pMac, &pBssDescr->bssDescription,
                              pBPR, pRxPacketInfo);
+    if (eHAL_STATUS_SUCCESS != status)
+    {
+        goto last;
+    }
 #endif
     pBssDescr->bssDescription.fProbeRsp = fProbeRsp;
 
@@ -616,10 +625,12 @@ limCheckAndAddBssDescription(tpAniSirGlobal pMac,
         }
     }//(eANI_BOOLEAN_TRUE == fScanning)
 
+last:
     if( eHAL_STATUS_SUCCESS != status )
     {
         vos_mem_free( pBssDescr );
     }
+    return;
 } /****** end limCheckAndAddBssDescription() ******/
 
 
