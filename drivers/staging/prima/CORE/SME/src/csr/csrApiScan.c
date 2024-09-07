@@ -917,6 +917,18 @@ eHalStatus csrScanRequest(tpAniSirGlobal pMac, tANI_U16 sessionId,
                             pMac->roam.configParam.max_chan_for_dwell_time_cfg);
                 }
                 status = csrScanCopyRequest(pMac, &pScanCmd->u.scanCmd.u.scanRequest, pScanRequest);
+
+// LGE_CHANGE_S, 2017.21-27, neo-wifi@lge.com, Add debug log
+			   {
+                   tCsrScanRequest *pTempScanReq = &pScanCmd->u.scanCmd.u.scanRequest;
+                   pMac->scan.scanProfile.numOfChannels = pTempScanReq->ChannelInfo.numOfChannels;
+                   printk("[LGE-WIFI] scanId=%d Scan reason=%u numChan=%d P2P search=%d minCT=%d maxCT=%d minCBtc=%d maxCBtx=%d, result=%d \n",
+                        pScanCmd->u.scanCmd.scanID, pScanCmd->u.scanCmd.reason, pTempScanReq->ChannelInfo.numOfChannels, pTempScanReq->p2pSearch, 
+                        pTempScanReq->minChnTime, pTempScanReq->maxChnTime, pTempScanReq->min_chntime_btc_esco, pTempScanReq->max_chntime_btc_esco, status);
+			   }
+// LGE_CHANGE_E, 2017.12-27, neo-wifi@lge.com, Add debug log
+
+
                 if(HAL_STATUS_SUCCESS(status))
                 {
                     tCsrScanRequest *pTempScanReq =
